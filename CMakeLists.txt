@@ -25,14 +25,14 @@ add_subdirectory("${DriverDefPaths_SOURCE_DIR}/Library/libexpat/expat")
 set_target_properties(expat PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
 set_build_dir_default(expat)
 
-set(HEADER_FILES
+set(DriverDefPaths_HEADER_FILES
 )
-set(SOURCE_FILES
+set(DriverDefPaths_SOURCE_FILES
 	"${DriverDefPaths_SOURCE_DIR}/Source/Main.c"
 )
 add_executable(DriverDefPaths
-	${HEADER_FILES}
-	${SOURCE_FILES}
+	${DriverDefPaths_HEADER_FILES}
+	${DriverDefPaths_SOURCE_FILES}
 )
 target_include_directories(DriverDefPaths PRIVATE
 	${EXPAT_INCLUDE_DIRS}
