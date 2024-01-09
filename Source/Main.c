@@ -1,124 +1,137 @@
-/* Read an XML document from standard input and print an element
-   outline on standard output.
-   Must be used with Expat compiled for UTF-8 output.
-                            __  __            _
-                         ___\ \/ /_ __   __ _| |_
-                        / _ \\  /| '_ \ / _` | __|
-                       |  __//  \| |_) | (_| | |_
-                        \___/_/\_\ .__/ \__,_|\__|
-                                 |_| XML parser
-
-   Copyright (c) 2000      Clark Cooper <coopercc@users.sourceforge.net>
-   Copyright (c) 2001-2003 Fred L. Drake, Jr. <fdrake@users.sourceforge.net>
-   Copyright (c) 2005-2007 Steven Solie <steven@solie.ca>
-   Copyright (c) 2005-2006 Karl Waclawek <karl@waclawek.net>
-   Copyright (c) 2016-2022 Sebastian Pipping <sebastian@pipping.org>
-   Copyright (c) 2017      Rhodri James <rhodri@wildebeest.org.uk>
-   Licensed under the MIT license:
-
-   Permission is  hereby granted,  free of charge,  to any  person obtaining
-   a  copy  of  this  software   and  associated  documentation  files  (the
-   "Software"),  to  deal in  the  Software  without restriction,  including
-   without  limitation the  rights  to use,  copy,  modify, merge,  publish,
-   distribute, sublicense, and/or sell copies of the Software, and to permit
-   persons  to whom  the Software  is  furnished to  do so,  subject to  the
-   following conditions:
-
-   The above copyright  notice and this permission notice  shall be included
-   in all copies or substantial portions of the Software.
-
-   THE  SOFTWARE  IS  PROVIDED  "AS  IS",  WITHOUT  WARRANTY  OF  ANY  KIND,
-   EXPRESS  OR IMPLIED,  INCLUDING  BUT  NOT LIMITED  TO  THE WARRANTIES  OF
-   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-   NO EVENT SHALL THE AUTHORS OR  COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-   DAMAGES OR  OTHER LIABILITY, WHETHER  IN AN  ACTION OF CONTRACT,  TORT OR
-   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-   USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
-
 #include <stdio.h>
+#include <string.h>
+#include <errno.h>
 #include <expat.h>
 
-#ifdef XML_LARGE_SIZE
-#  define XML_FMT_INT_MOD "ll"
-#else
-#  define XML_FMT_INT_MOD "l"
-#endif
+#include "GuardedMalloc.h"
+#include "XmlNode.h"
 
-#ifdef XML_UNICODE_WCHAR_T
-#  define XML_FMT_STR "ls"
-#else
-#  define XML_FMT_STR "s"
-#endif
+static void XMLCALL StartElementCallback(void* pUserData, const XML_Char* sName, const XML_Char** asAttributes) {
+	xml_node** ppParentNode = pUserData;
+	xml_node* pNewNode = XmlNodeCreate();
+	XmlNodeAddChildren(*ppParentNode, pNewNode);
+	*ppParentNode = pNewNode;
 
-static void XMLCALL
-startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
-    int i;
-    int* const depthPtr = (int*)userData;
+	size_t NameSize = (strlen(sName) + 1) * sizeof(*sName);
+	pNewNode->sName = malloc_guarded(NameSize);
+	memcpy(pNewNode->sName, sName, NameSize);
 
-    for (i = 0; i < *depthPtr; i++)
-        printf("  ");
+	for (int i = 0; asAttributes[i]; i += 2) {
+		size_t AttributeNameSize = (strlen(asAttributes[i]) + 1) * sizeof(*asAttributes);
+		size_t AttributeContentSize = (strlen(asAttributes[i + 1]) + 1) * sizeof(*asAttributes);
 
-    printf("%" XML_FMT_STR, name);
+		xml_attribute* pNewAttribute = XmlAttributeCreate();
+		XmlNodeAddAttribute(pNewNode, pNewAttribute);
 
-    for (i = 0; atts[i]; i += 2) {
-        printf(" %" XML_FMT_STR "='%" XML_FMT_STR "'", atts[i], atts[i + 1]);
-    }
+		pNewAttribute->sName = malloc_guarded(AttributeNameSize);
+		memcpy(pNewAttribute->sName, asAttributes[i], AttributeNameSize);
 
-    printf("\n");
-    *depthPtr += 1;
+		pNewAttribute->sContent = malloc_guarded(AttributeContentSize);
+		memcpy(pNewAttribute->sContent, asAttributes[i + 1], AttributeContentSize);
+	}
 }
 
-static void XMLCALL
-endElement(void* userData, const XML_Char* name) {
-    int* const depthPtr = (int*)userData;
-    (void)name;
-
-    *depthPtr -= 1;
+static void XMLCALL EndElementCallback(void* pUserData, const XML_Char* sName) {
+	xml_node** ppCurrentNode = pUserData;
+	*ppCurrentNode = (*ppCurrentNode)->pParent;
 }
 
-int
-main(void) {
-    XML_Parser parser = XML_ParserCreate(NULL);
-    int done;
-    int depth = 0;
+static void XMLCALL CharacterDataCallback(void* pUserData, const XML_Char* sContent, int Length) {
+	xml_node* pCurrentNode = *(xml_node**)pUserData;
+	pCurrentNode->sContent = malloc_guarded((Length + 1) * sizeof(*pCurrentNode->sContent));
+	memcpy(pCurrentNode->sContent, sContent, Length * sizeof(*pCurrentNode->sContent));
+	pCurrentNode->sContent[Length] = '\0';
+}
 
-    if (!parser) {
-        fprintf(stderr, "Couldn't allocate memory for parser\n");
-        return 1;
-    }
+int main(int argc, char** argv) {
 
-    XML_SetUserData(parser, &depth);
-    XML_SetElementHandler(parser, startElement, endElement);
+	if (argc < 2) {
+		fprintf(stderr, "No definition file specified.\n");
+		return 1;
+	}
 
-    do {
-        void* const buf = XML_GetBuffer(parser, BUFSIZ);
-        if (!buf) {
-            fprintf(stderr, "Couldn't allocate memory for buffer\n");
-            XML_ParserFree(parser);
-            return 1;
-        }
+	FILE* DefinitionFile = fopen(argv[1], "rb");
+	if (!DefinitionFile) {
+		fprintf(stderr, "Unable to open the file \"%s\":\n", argv[1]);
+		fprintf(stderr, "%s\n", strerror(errno));
+		return 1;
+	}
+	fseek(DefinitionFile, 0, SEEK_END);
+	size_t DefinitionFileSize = ftell(DefinitionFile);
+	fseek(DefinitionFile, 0, SEEK_SET);
 
-        const size_t len = fread(buf, 1, BUFSIZ, stdin);
+	XML_Parser Parser = XML_ParserCreate(NULL);
+	if (!Parser) {
+		fprintf(stderr, "Unable to create parser.\n");
+		return 1;
+	}
+	
+	xml_node* pRootNode = XmlNodeCreate();
+	XML_SetUserData(Parser, &pRootNode);
+	XML_SetElementHandler(Parser, StartElementCallback, EndElementCallback);
+	XML_SetCharacterDataHandler(Parser, CharacterDataCallback);
 
-        if (ferror(stdin)) {
-            fprintf(stderr, "Read error\n");
-            XML_ParserFree(parser);
-            return 1;
-        }
+	void* pTextBuffer = XML_GetBuffer(Parser, (int)DefinitionFileSize);
+	if (!pTextBuffer) {
+		fprintf(stderr, "Unable to allocate memory.\n");
+		XML_ParserFree(Parser);
+		return 1;
+	}
 
-        done = feof(stdin);
+	DefinitionFileSize = fread(pTextBuffer, 1, DefinitionFileSize, DefinitionFile);
+	if (ferror(DefinitionFile)) {
+		fprintf(stderr, "Unable to read from file.\n");
+		XML_ParserFree(Parser);
+		return 1;
+	}
 
-        if (XML_ParseBuffer(parser, (int)len, done) == XML_STATUS_ERROR) {
-            fprintf(stderr,
-                "Parse error at line %" XML_FMT_INT_MOD "u:\n%" XML_FMT_STR "\n",
-                XML_GetCurrentLineNumber(parser),
-                XML_ErrorString(XML_GetErrorCode(parser)));
-            XML_ParserFree(parser);
-            return 1;
-        }
-    } while (!done);
+	if (XML_ParseBuffer(Parser, (int)DefinitionFileSize, 1) == XML_STATUS_ERROR) {
+		fprintf(stderr,
+			"Parse error at line %iu:\n"
+			"%s\n",
+			XML_GetCurrentLineNumber(Parser),
+			XML_ErrorString(XML_GetErrorCode(Parser)));
+		XML_ParserFree(Parser);
+		return 1;
+	}
 
-    XML_ParserFree(parser);
-    return 0;
+	// OMG. Maybe callback function is better?
+
+	for (size_t i = 0; i < pRootNode->nChildren; ++i) {
+		if (strcmp(pRootNode->apChildren[i]->sName, "FeatureManifest") == 0) {
+
+			xml_node* FeatureManifestNode = pRootNode->apChildren[i];
+			for (size_t j = 0; j < FeatureManifestNode->nChildren; ++j) {
+				if (strcmp(FeatureManifestNode->apChildren[j]->sName, "Drivers") == 0) {
+
+					xml_node* DriversNode = FeatureManifestNode->apChildren[j];
+					for (size_t k = 0; k < DriversNode->nChildren; ++k) {
+						if (strcmp(DriversNode->apChildren[k]->sName, "BaseDriverPackages") == 0) {
+
+							xml_node* BaseDriverPackagesNode = DriversNode->apChildren[k];
+							for (size_t l = 0; l < BaseDriverPackagesNode->nChildren; ++l) {
+								if (strcmp(BaseDriverPackagesNode->apChildren[l]->sName, "DriverPackageFile") == 0) {
+
+									xml_node* DriverPackageFileNode = BaseDriverPackagesNode->apChildren[l];
+									char* DriverPath = XmlNodeFindAttribute(DriverPackageFileNode, "Path")->sContent;
+									char* DriverName = XmlNodeFindAttribute(DriverPackageFileNode, "Name")->sContent;
+									if (!DriverPath || !DriverName)
+										break;
+									printf("%s\\%s\n", DriverPath, DriverName);
+
+								}
+							}
+
+						}
+					}
+				}
+
+			}
+
+		}
+	}
+
+	XmlNodeFree(pRootNode);
+	XML_ParserFree(Parser);
+	return 0;
 }

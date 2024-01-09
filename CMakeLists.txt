@@ -26,9 +26,12 @@ set_target_properties(expat PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
 set_build_dir_default(expat)
 
 set(DriverDefPaths_HEADER_FILES
+	"${DriverDefPaths_SOURCE_DIR}/Include/GuardedMalloc.h"
+	"${DriverDefPaths_SOURCE_DIR}/Include/XmlNode.h"
 )
 set(DriverDefPaths_SOURCE_FILES
 	"${DriverDefPaths_SOURCE_DIR}/Source/Main.c"
+	"${DriverDefPaths_SOURCE_DIR}/Source/XmlNode.c"
 )
 add_executable(DriverDefPaths
 	${DriverDefPaths_HEADER_FILES}
