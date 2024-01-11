@@ -1,33 +1,23 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+
 #include <expat.h>
 
 #include "GuardedMalloc.h"
 #include "XmlNode.h"
 
+#define strlen_literal(X) (sizeof(X) / sizeof(*X) - 1)
+
 static void XMLCALL StartElementCallback(void* pUserData, const XML_Char* sName, const XML_Char** asAttributes) {
 	xml_node** ppParentNode = pUserData;
-	xml_node* pNewNode = XmlNodeCreate();
+	xml_node* pNewNode = XmlNodeCreate(sName, NULL);
 	XmlNodeAddChildren(*ppParentNode, pNewNode);
 	*ppParentNode = pNewNode;
 
-	size_t NameSize = (strlen(sName) + 1) * sizeof(*sName);
-	pNewNode->sName = malloc_guarded(NameSize);
-	memcpy(pNewNode->sName, sName, NameSize);
-
 	for (int i = 0; asAttributes[i]; i += 2) {
-		size_t AttributeNameSize = (strlen(asAttributes[i]) + 1) * sizeof(*asAttributes);
-		size_t AttributeContentSize = (strlen(asAttributes[i + 1]) + 1) * sizeof(*asAttributes);
-
-		xml_attribute* pNewAttribute = XmlAttributeCreate();
+		xml_attribute* pNewAttribute = XmlAttributeCreate(asAttributes[i], asAttributes[i + 1]);
 		XmlNodeAddAttribute(pNewNode, pNewAttribute);
-
-		pNewAttribute->sName = malloc_guarded(AttributeNameSize);
-		memcpy(pNewAttribute->sName, asAttributes[i], AttributeNameSize);
-
-		pNewAttribute->sContent = malloc_guarded(AttributeContentSize);
-		memcpy(pNewAttribute->sContent, asAttributes[i + 1], AttributeContentSize);
 	}
 }
 
@@ -52,8 +42,10 @@ int main(int argc, char** argv) {
 
 	FILE* DefinitionFile = fopen(argv[1], "rb");
 	if (!DefinitionFile) {
+		char sError[256];
+		strerror_s(sError, 256, errno);
 		fprintf(stderr, "Unable to open the file \"%s\":\n", argv[1]);
-		fprintf(stderr, "%s\n", strerror(errno));
+		fprintf(stderr, "%s\n", sError);
 		return 1;
 	}
 	fseek(DefinitionFile, 0, SEEK_END);
@@ -66,7 +58,7 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 	
-	xml_node* pRootNode = XmlNodeCreate();
+	xml_node* pRootNode = XmlNodeCreate("", NULL);
 	XML_SetUserData(Parser, &pRootNode);
 	XML_SetElementHandler(Parser, StartElementCallback, EndElementCallback);
 	XML_SetCharacterDataHandler(Parser, CharacterDataCallback);
@@ -95,43 +87,74 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	// OMG. Maybe callback function is better?
+	// TODO: XmlNodeFindChildren
 
 	for (size_t i = 0; i < pRootNode->nChildren; ++i) {
+
 		if (strcmp(pRootNode->apChildren[i]->sName, "FeatureManifest") == 0) {
 
-			xml_node* FeatureManifestNode = pRootNode->apChildren[i];
-			for (size_t j = 0; j < FeatureManifestNode->nChildren; ++j) {
-				if (strcmp(FeatureManifestNode->apChildren[j]->sName, "Drivers") == 0) {
+			xml_node* pFeatureManifestNode = pRootNode->apChildren[i];
+			for (size_t ii = 0; ii < pFeatureManifestNode->nChildren; ++ii) {
 
-					xml_node* DriversNode = FeatureManifestNode->apChildren[j];
-					for (size_t k = 0; k < DriversNode->nChildren; ++k) {
-						if (strcmp(DriversNode->apChildren[k]->sName, "BaseDriverPackages") == 0) {
+				if (strcmp(pFeatureManifestNode->apChildren[ii]->sName, "Drivers") == 0) {
 
-							xml_node* BaseDriverPackagesNode = DriversNode->apChildren[k];
-							for (size_t l = 0; l < BaseDriverPackagesNode->nChildren; ++l) {
-								if (strcmp(BaseDriverPackagesNode->apChildren[l]->sName, "DriverPackageFile") == 0) {
+					xml_node* pDriversNode = pFeatureManifestNode->apChildren[ii];
+					for (size_t iii = 0; iii < pDriversNode->nChildren; ++iii) {
 
-									xml_node* DriverPackageFileNode = BaseDriverPackagesNode->apChildren[l];
-									char* DriverPath = XmlNodeFindAttribute(DriverPackageFileNode, "Path")->sContent;
-									char* DriverName = XmlNodeFindAttribute(DriverPackageFileNode, "Name")->sContent;
-									if (!DriverPath || !DriverName)
+						if (strcmp(pDriversNode->apChildren[iii]->sName, "BaseDriverPackages") == 0) {
+
+							xml_node* pBaseDriverPackagesNode = pDriversNode->apChildren[iii];
+							for (size_t iv = 0; iv < pBaseDriverPackagesNode->nChildren; ++iv) {
+
+								if (strcmp(pBaseDriverPackagesNode->apChildren[iv]->sName, "DriverPackageFile") == 0) {
+
+									xml_node* DriverPackageFileNode = pBaseDriverPackagesNode->apChildren[iv];
+									xml_attribute* pPathAttribute = XmlNodeFindAttribute(DriverPackageFileNode, "Path");
+									xml_attribute* pNameAttribute = XmlNodeFindAttribute(DriverPackageFileNode, "Name");
+									if (!pPathAttribute || !pNameAttribute)
 										break;
-									printf("%s\\%s\n", DriverPath, DriverName);
+
+									char* sDriverPath = pPathAttribute->sContent;
+									char* sDriverName = pNameAttribute->sContent;
+									if (!sDriverPath || !sDriverName)
+										break;
+
+									// Remove "$(mspackageroot)"
+									size_t MprLength = strlen_literal("$(mspackageroot)");
+									if (
+										(strlen(sDriverPath) >= MprLength) &&
+										(strncmp(sDriverPath, "$(mspackageroot)", MprLength) == 0)
+									)
+										// "$(mspackageroot)" is always at the start of the path
+										// because that's the only place it makes sense.
+										sDriverPath += MprLength;
+
+									// Remove trailing backslash.
+									while (sDriverPath[0] == '\\')
+										++sDriverPath;
+
+									printf("%s\\%s\n", sDriverPath, sDriverName);
 
 								}
+
 							}
 
 						}
+
 					}
+
 				}
 
 			}
 
 		}
+
 	}
 
 	XmlNodeFree(pRootNode);
 	XML_ParserFree(Parser);
+	fclose(DefinitionFile);
+
 	return 0;
+
 }
