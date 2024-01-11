@@ -1,4 +1,6 @@
-#DriverDefPaths
+# DriverDefPaths
+
+Make a simple list of INF files from [Lumia-Driver definition files](https://github.com/WOA-Project/Lumia-Drivers/tree/main/definitions).
 
 Build:
 ```
