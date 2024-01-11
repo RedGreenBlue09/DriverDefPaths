@@ -114,14 +114,14 @@ int main(int argc, char** argv) {
 					if (!sDriverPath || !sDriverName)
 						break;
 
-					// Remove "$(mspackageroot)"
+					// Remove "$(mspackageroot)".
+					// "$(mspackageroot)" is always at the start of the path
+					// because that's the only place it makes sense.
 					size_t MprLength = strlen_literal("$(mspackageroot)");
 					if (
 						(strlen(sDriverPath) >= MprLength) &&
 						(strncmp(sDriverPath, "$(mspackageroot)", MprLength) == 0)
-						)
-						// "$(mspackageroot)" is always at the start of the path
-						// because that's the only place it makes sense.
+					)
 						sDriverPath += MprLength;
 
 					// Remove trailing backslash.
