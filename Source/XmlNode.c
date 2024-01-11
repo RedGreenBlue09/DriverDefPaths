@@ -78,6 +78,24 @@ void XmlNodeAddChildren(xml_node* pParentNode, xml_node* pChildrenNode) {
 	pChildrenNode->pParent = pParentNode;
 };
 
+xml_node* XmlNodeFindChildren(xml_node* pParentNode, const char* sChildrenName, size_t* iCurrentChildren) {
+	assert(pParentNode != NULL);
+	assert(sChildrenName != NULL);
+
+	size_t i;
+	for (i = iCurrentChildren ? (*iCurrentChildren) : 0; i < pParentNode->nChildren; ++i)
+		if (strcmp(pParentNode->apChildren[i]->sName, sChildrenName) == 0) {
+			if (iCurrentChildren)
+				*iCurrentChildren = i + 1;
+			return pParentNode->apChildren[i];
+		}
+
+	if (iCurrentChildren)
+		*iCurrentChildren = i;
+
+	return NULL;
+};
+
 xml_attribute* XmlNodeFindAttribute(xml_node* pParentNode, const char* sAttributeName) {
 	assert(pParentNode != NULL);
 	assert(sAttributeName != NULL);

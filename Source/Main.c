@@ -28,7 +28,7 @@ static void XMLCALL EndElementCallback(void* pUserData, const XML_Char* sName) {
 
 static void XMLCALL CharacterDataCallback(void* pUserData, const XML_Char* sContent, int Length) {
 	xml_node* pCurrentNode = *(xml_node**)pUserData;
-	pCurrentNode->sContent = malloc_guarded((Length + 1) * sizeof(*pCurrentNode->sContent));
+	pCurrentNode->sContent = malloc_guarded(((size_t)Length + 1) * sizeof(*pCurrentNode->sContent));
 	memcpy(pCurrentNode->sContent, sContent, Length * sizeof(*pCurrentNode->sContent));
 	pCurrentNode->sContent[Length] = '\0';
 }
@@ -87,61 +87,48 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	// TODO: XmlNodeFindChildren
+	// Get driver files
+	xml_node* pFeatureManifestNode;
+	size_t i = 0;
+	while (pFeatureManifestNode = XmlNodeFindChildren(pRootNode, "FeatureManifest", &i)) {
 
-	for (size_t i = 0; i < pRootNode->nChildren; ++i) {
+		xml_node* pDriversNode;
+		size_t ii = 0;
+		while (pDriversNode = XmlNodeFindChildren(pFeatureManifestNode, "Drivers", &ii)) {
 
-		if (strcmp(pRootNode->apChildren[i]->sName, "FeatureManifest") == 0) {
+			xml_node* pBaseDriverPackagesNode;
+			size_t iii = 0;
+			while (pBaseDriverPackagesNode = XmlNodeFindChildren(pDriversNode, "BaseDriverPackages", &iii)) {
 
-			xml_node* pFeatureManifestNode = pRootNode->apChildren[i];
-			for (size_t ii = 0; ii < pFeatureManifestNode->nChildren; ++ii) {
+				xml_node* pDriverPackageFileNode;
+				size_t iv = 0;
+				while (pDriverPackageFileNode = XmlNodeFindChildren(pBaseDriverPackagesNode, "DriverPackageFile", &iv)) {
 
-				if (strcmp(pFeatureManifestNode->apChildren[ii]->sName, "Drivers") == 0) {
+					xml_attribute* pPathAttribute = XmlNodeFindAttribute(pDriverPackageFileNode, "Path");
+					xml_attribute* pNameAttribute = XmlNodeFindAttribute(pDriverPackageFileNode, "Name");
+					if (!pPathAttribute || !pNameAttribute)
+						break;
 
-					xml_node* pDriversNode = pFeatureManifestNode->apChildren[ii];
-					for (size_t iii = 0; iii < pDriversNode->nChildren; ++iii) {
+					char* sDriverPath = pPathAttribute->sContent;
+					char* sDriverName = pNameAttribute->sContent;
+					if (!sDriverPath || !sDriverName)
+						break;
 
-						if (strcmp(pDriversNode->apChildren[iii]->sName, "BaseDriverPackages") == 0) {
+					// Remove "$(mspackageroot)"
+					size_t MprLength = strlen_literal("$(mspackageroot)");
+					if (
+						(strlen(sDriverPath) >= MprLength) &&
+						(strncmp(sDriverPath, "$(mspackageroot)", MprLength) == 0)
+						)
+						// "$(mspackageroot)" is always at the start of the path
+						// because that's the only place it makes sense.
+						sDriverPath += MprLength;
 
-							xml_node* pBaseDriverPackagesNode = pDriversNode->apChildren[iii];
-							for (size_t iv = 0; iv < pBaseDriverPackagesNode->nChildren; ++iv) {
+					// Remove trailing backslash.
+					while (sDriverPath[0] == '\\')
+						++sDriverPath;
 
-								if (strcmp(pBaseDriverPackagesNode->apChildren[iv]->sName, "DriverPackageFile") == 0) {
-
-									xml_node* DriverPackageFileNode = pBaseDriverPackagesNode->apChildren[iv];
-									xml_attribute* pPathAttribute = XmlNodeFindAttribute(DriverPackageFileNode, "Path");
-									xml_attribute* pNameAttribute = XmlNodeFindAttribute(DriverPackageFileNode, "Name");
-									if (!pPathAttribute || !pNameAttribute)
-										break;
-
-									char* sDriverPath = pPathAttribute->sContent;
-									char* sDriverName = pNameAttribute->sContent;
-									if (!sDriverPath || !sDriverName)
-										break;
-
-									// Remove "$(mspackageroot)"
-									size_t MprLength = strlen_literal("$(mspackageroot)");
-									if (
-										(strlen(sDriverPath) >= MprLength) &&
-										(strncmp(sDriverPath, "$(mspackageroot)", MprLength) == 0)
-									)
-										// "$(mspackageroot)" is always at the start of the path
-										// because that's the only place it makes sense.
-										sDriverPath += MprLength;
-
-									// Remove trailing backslash.
-									while (sDriverPath[0] == '\\')
-										++sDriverPath;
-
-									printf("%s\\%s\n", sDriverPath, sDriverName);
-
-								}
-
-							}
-
-						}
-
-					}
+					printf("%s\\%s\n", sDriverPath, sDriverName);
 
 				}
 
