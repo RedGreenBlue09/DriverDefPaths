@@ -38,7 +38,6 @@ add_executable(DriverDefPaths
 	${DriverDefPaths_SOURCE_FILES}
 )
 target_include_directories(DriverDefPaths PRIVATE
-	${EXPAT_INCLUDE_DIRS}
 	${DriverDefPaths_SOURCE_DIR}/Include
 )
 target_link_libraries(DriverDefPaths PUBLIC expat)

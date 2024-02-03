@@ -52,16 +52,6 @@ void XmlNodeFree(xml_node* pNode) {
 	free(pNode);
 }
 
-/*
-void XmlNodeSetContent(xml_node* pNode, const char* sContent) {
-	assert(pNode != NULL);
-
-	size_t ContentSize = (strlen(sContent) + 1) * sizeof(*sContent);
-	pNode->sContent = realloc_guarded(pNode->sContent, ContentSize);
-	memcpy(pNode->sContent, sContent, ContentSize);
-}
-*/
-
 void XmlNodeAddChildren(xml_node* pParentNode, xml_node* pChildrenNode) {
 	assert(pParentNode != NULL);
 	assert(pChildrenNode != NULL);

@@ -107,21 +107,18 @@ int main(int argc, char** argv) {
 					xml_attribute* pPathAttribute = XmlNodeFindAttribute(pDriverPackageFileNode, "Path");
 					xml_attribute* pNameAttribute = XmlNodeFindAttribute(pDriverPackageFileNode, "Name");
 					if (!pPathAttribute || !pNameAttribute)
-						break;
+						continue;
 
 					char* sDriverPath = pPathAttribute->sContent;
 					char* sDriverName = pNameAttribute->sContent;
 					if (!sDriverPath || !sDriverName)
-						break;
+						continue;
 
 					// Remove "$(mspackageroot)".
 					// "$(mspackageroot)" is always at the start of the path
 					// because that's the only place it makes sense.
 					size_t MprLength = strlen_literal("$(mspackageroot)");
-					if (
-						(strlen(sDriverPath) >= MprLength) &&
-						(strncmp(sDriverPath, "$(mspackageroot)", MprLength) == 0)
-					)
+					if (strncmp(sDriverPath, "$(mspackageroot)", MprLength) == 0)
 						sDriverPath += MprLength;
 
 					// Remove trailing backslash.
